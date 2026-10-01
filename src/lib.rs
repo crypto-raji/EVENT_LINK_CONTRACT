@@ -106,6 +106,7 @@ impl EventTicketContract {
         price: i128,
         claim_secret_hash: String,
     ) -> u64 {
+        buyer.require_auth();
         let mut meta: EventMeta = env.storage().instance().get(&DataKey::EventInfo).unwrap();
         if price <= 0 {
             panic!("Ticket price must be greater than zero");
@@ -373,6 +374,24 @@ mod test {
         );
 
         (contract_id, organizer)
+    }
+
+    #[test]
+    fn mint_requires_buyer_authorization() {
+        let env = Env::default();
+        let (contract_id, _) = setup_event(&env, 1, 500);
+        let client = EventTicketContractClient::new(&env, &contract_id);
+        let buyer = Address::generate(&env);
+        env.set_auths(&[]);
+
+        assert!(client
+            .try_mint_ticket(
+                &buyer,
+                &String::from_str(&env, "General"),
+                &100,
+                &String::from_str(&env, ""),
+            )
+            .is_err());
     }
 
     #[test]
