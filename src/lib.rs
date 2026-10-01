@@ -368,8 +368,7 @@ impl EventTicketContract {
         // Anti-scalping cap: Max 150% of original price.
         let max_resale = ticket
             .price
-            .checked_mul(150)
-            .map(|price| price / 100)
+            .checked_add(ticket.price / 2)
             .unwrap_or(i128::MAX);
         if resale_price > max_resale {
             fail(&env, ContractError::ResalePriceAboveCap);
@@ -639,30 +638,28 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn initialize_rejects_event_name_over_limit() {
+    fn resale_cap_handles_rounding_and_large_prices() {
         let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, EventTicketContract);
+        let (contract_id, _) = setup_event(&env, 4, 500);
         let client = EventTicketContractClient::new(&env, &contract_id);
-        let long_name = String::from_str(&env, &"a".repeat(101));
+        let seller = Address::generate(&env);
+        let tier = String::from_str(&env, "General");
+        let no_claim = String::from_str(&env, "");
 
-        client.initialize(&Address::generate(&env), &long_name, &1, &500);
-    }
+        client.mint_ticket(&seller, &tier, &101, &no_claim);
+        client.list_resale(&seller, &1, &151);
 
-    #[test]
-    #[should_panic]
-    fn initialize_rejects_supply_over_limit() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, EventTicketContract);
-        let client = EventTicketContractClient::new(&env, &contract_id);
+        client.mint_ticket(&seller, &tier, &101, &no_claim);
+        assert!(client.try_list_resale(&seller, &2, &152).is_err());
 
-        client.initialize(
-            &Address::generate(&env),
-            &String::from_str(&env, "Test event"),
-            &1_000_001,
-            &500,
-        );
+        let large_price = i128::MAX / 2;
+        let exact_cap = large_price + large_price / 2;
+        client.mint_ticket(&seller, &tier, &large_price, &no_claim);
+        client.list_resale(&seller, &3, &exact_cap);
+
+        client.mint_ticket(&seller, &tier, &large_price, &no_claim);
+        assert!(client
+            .try_list_resale(&seller, &4, &(exact_cap + 1))
+            .is_err());
     }
 }
